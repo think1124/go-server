@@ -1,119 +1,81 @@
-// 파일 이름: main.go
+// 파일 이름: main.go (HTML 방식 최종본)
 
 package main
 
 import (
-	"encoding/json"
+	"html/template" // ★ JSON 대신 HTML 템플릿 라이브러리 사용
 	"log"
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// --- 여기부터는 실제 DB를 쓴다고 가정하고 만든 임시 데이터와 함수들입니다. ---
-// --- 나중에 실제 DB로 이 부분만 교체하면 됩니다. ---
-
-// 임시 유저 데이터 구조체
+// 임시 유저 데이터 (이전과 동일)
 type TempUser struct {
 	ZepetoID string
 	Username string
 	Count    int
 }
 
-// 임시 데이터베이스 역할 (실제로는 DB에 저장된 테이블)
 var tempDatabase = []TempUser{
 	{ZepetoID: "zepeto_god", Username: "ZEPETO_GOD", Count: 99999},
 	{ZepetoID: "world_master", Username: "WorldMaster", Count: 88888},
-	{ZepetoID: "dev_joy", Username: "개발하는조이", Count: 76543},
-	{ZepetoID: "coding_fun", Username: "코딩조아", Count: 65432},
-	{ZepetoID: "my_zepeto_id", Username: "MyNickName", Count: 54321}, // 테스트용 내 ID
-	{ZepetoID: "user_a", Username: "유저A", Count: 43210},
-	{ZepetoID: "user_b", Username: "유저B", Count: 32109},
-	{ZepetoID: "user_c", Username: "유저C", Count: 21098},
-	{ZepetoID: "user_d", Username: "유저D", Count: 10987},
-	{ZepetoID: "user_e", Username: "유저E", Count: 9876},
+    // ... (이전과 동일한 임시 데이터)
 }
 
-// 임시 DB에서 랭킹을 조회하는 함수 (실제 DB 함수를 흉내 낸 것)
-func getRankingsFromTempDB() []TempUser {
-	// 글자 수(Count) 기준으로 내림차순 정렬
+// HTML 템플릿에 전달할 최종 랭킹 데이터 구조체
+type PageRankEntry struct {
+	Rank  int
+	User  string
+	Count int
+}
+
+// 랭킹 HTML 페이지를 보여주는 핸들러
+func rankingHTMLHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. 임시 DB에서 랭킹 데이터를 가져와 정렬합니다.
 	sort.Slice(tempDatabase, func(i, j int) bool {
 		return tempDatabase[i].Count > tempDatabase[j].Count
 	})
-	return tempDatabase
-}
 
-// ------------------- 임시 데이터베이스 코드 끝 -------------------
-
-
-// ZEPETO 클라이언트에 보낼 랭킹 데이터 구조체 (필드명 최소화)
-type RankEntry struct {
-	Rank  int    `json:"r"` // Rank
-	User  string `json:"u"` // Username
-	Count int    `json:"c"` // Count
-}
-
-// 최종 응답 구조체 (전체 랭킹 + 내 순위)
-type RankingResponse struct {
-	TopRankings []RankEntry `json:"top"`
-	MyRank      *RankEntry  `json:"myRank,omitempty"`
-}
-
-// ZEPETO 랭킹 API 핸들러
-func zepetoRankingHandler(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("userId")
-
-	// 1. (임시) DB에서 랭킹 데이터를 가져옵니다.
-	allRankings := getRankingsFromTempDB()
-
-	// 2. 전체 랭킹 목록(Top 50)과 내 랭킹 정보를 찾습니다.
-	var topRankings []RankEntry
-	var myRank *RankEntry = nil
-	
-	for i, user := range allRankings {
-		rank := i + 1
-		// 상위 50위까지만 topRankings에 추가
-		if rank <= 50 {
-			topRankings = append(topRankings, RankEntry{
-				Rank:  rank,
-				User:  user.Username,
-				Count: user.Count,
-			})
-		}
-		// 내 랭킹 찾기 (대소문자 무시)
-		if userID != "" && strings.EqualFold(user.ZepetoID, userID) {
-			myRank = &RankEntry{
-				Rank:  rank,
-				User:  user.Username,
-				Count: user.Count,
-			}
-		}
+	// 2. HTML 템플릿에 채워넣을 최종 데이터를 만듭니다.
+	var pageRankings []PageRankEntry
+	for i, user := range tempDatabase {
+        // 상위 50위까지만 보여줍니다.
+        if i >= 50 {
+            break
+        }
+		pageRankings = append(pageRankings, PageRankEntry{
+			Rank:  i + 1,
+			User:  user.Username,
+			Count: user.Count,
+		})
 	}
 
-	// 3. 최종 응답 데이터를 만듭니다.
-	response := RankingResponse{
-		TopRankings: topRankings,
-		MyRank:      myRank,
+	// 3. 'templates/ranking.html' 파일을 읽어옵니다.
+	tmpl, err := template.ParseFiles("templates/ranking.html")
+	if err != nil {
+		http.Error(w, "Could not parse template", http.StatusInternalServerError)
+		log.Printf("Template parse error: %v", err)
+		return
 	}
 
-	// 4. JSON으로 변환하여 응답합니다.
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	// 4. HTML 파일에 랭킹 데이터를 채워서 사용자에게 전송합니다.
+	err = tmpl.Execute(w, pageRankings)
+	if err != nil {
+		http.Error(w, "Could not execute template", http.StatusInternalServerError)
+		log.Printf("Template execute error: %v", err)
+	}
 }
 
 func main() {
 	r := chi.NewRouter()
+	r.Use(middleware.Logger) // 어떤 요청이 오는지 로그를 남겨줍니다. (디버깅에 유용)
 
-	// Gzip 압축 미들웨어를 적용합니다.
-	r.Use(middleware.Compress(5, "application/json")) 
+	// ★★★ 주소를 /webranking 으로 만듭니다 ★★★
+	r.Get("/webranking", rankingHTMLHandler)
 
-	// ZEPETO 랭킹 API 주소를 등록합니다.
-	r.Get("/zepeto/rankings", zepetoRankingHandler)
-
-	// 서버 시작
 	port := "8080"
 	log.Printf("Server starting on port %s...", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
