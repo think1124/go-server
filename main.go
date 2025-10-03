@@ -1,9 +1,10 @@
-// 파일 이름: main.go (HTML 방식 최종본)
+// 파일 이름: main.go (HTML 방식 최종본 - embed 적용)
 
 package main
 
 import (
-	"html/template" // ★ JSON 대신 HTML 템플릿 라이브러리 사용
+	"embed" // ★ 1. embed 패키지를 import 합니다.
+	"html/template"
 	"log"
 	"net/http"
 	"sort"
@@ -11,6 +12,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// ★ 2. go:embed 지시자를 사용하여 templates 폴더의 내용을 변수에 담습니다.
+// 이 코드는 컴파일 시점에 templates/ranking.html 파일을 templateFiles 변수로 읽어옵니다.
+//go:embed templates/ranking.html
+var templateFiles embed.FS
 
 // 임시 유저 데이터 (이전과 동일)
 type TempUser struct {
@@ -42,7 +48,6 @@ func rankingHTMLHandler(w http.ResponseWriter, r *http.Request) {
 	// 2. HTML 템플릿에 채워넣을 최종 데이터를 만듭니다.
 	var pageRankings []PageRankEntry
 	for i, user := range tempDatabase {
-        // 상위 50위까지만 보여줍니다.
         if i >= 50 {
             break
         }
@@ -53,10 +58,10 @@ func rankingHTMLHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 3. 'templates/ranking.html' 파일을 읽어옵니다.
-	tmpl, err := template.ParseFiles("templates/ranking.html")
+	// ★ 3. 파일을 직접 읽는 대신, embed로 주입된 변수에서 템플릿을 파싱합니다.
+	tmpl, err := template.ParseFS(templateFiles, "templates/ranking.html")
 	if err != nil {
-		http.Error(w, "Could not parse template", http.StatusInternalServerError)
+		http.Error(w, "Could not parse template from embed", http.StatusInternalServerError)
 		log.Printf("Template parse error: %v", err)
 		return
 	}
@@ -71,12 +76,12 @@ func rankingHTMLHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	r := chi.NewRouter()
-	r.Use(middleware.Logger) // 어떤 요청이 오는지 로그를 남겨줍니다. (디버깅에 유용)
+	r.Use(middleware.Logger)
 
-	// ★★★ 주소를 /webranking 으로 만듭니다 ★★★
 	r.Get("/webranking", rankingHTMLHandler)
 
-	port := "8080"
+    // Render.com은 PORT 환경변수를 사용합니다. 없으면 8080을 사용하도록 설정.
+	port := "8080" 
 	log.Printf("Server starting on port %s...", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("could not listen on port %s %v", port, err)
